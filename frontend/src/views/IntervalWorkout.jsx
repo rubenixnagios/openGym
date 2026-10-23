@@ -40,7 +40,7 @@ export default function IntervalWorkout() {
   const exerciseName = entry ? exerciseNameFor(entry.id) : ''
 
 const nextExerciseIndex = flow?.exerciseCount
-  ? (flow.exercise + 1) % flow.exerciseCount
+  ? flow.exercise
   : null
 
 const nextEntry = nextExerciseIndex !== null

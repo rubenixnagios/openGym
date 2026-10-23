@@ -5,3 +5,10 @@ data
 .env
 .git
 *.log
+
+# Fitxers auxiliars locals que no han d'entrar a la imatge
+*.bak
+*.bak.*
+fix-interval-exercise.sh
+patch-interval-sounds.sh
+frontend/pt-br.txt

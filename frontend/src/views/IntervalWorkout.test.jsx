@@ -175,63 +175,83 @@ describe('IntervalWorkout', () => {
     })
   })
 
-it('skips from work to rest', () => {
-  const { container, root } = render()
+  it('skips from work to rest', () => {
+    const { container, root } = render()
 
-  const skip = [...container.querySelectorAll('button')]
-    .find(button => button.textContent === 'Skip')
+    const skip = [...container.querySelectorAll('button')]
+      .find(button => button.textContent === 'Skip')
 
-  expect(skip).toBeTruthy()
+    expect(skip).toBeTruthy()
 
-  act(() => {
-    skip.click()
+    act(() => {
+      skip.click()
+    })
+
+    expect(mocks.update).toHaveBeenCalled()
+
+    const next = applyLastUpdate()
+
+    expect(next.active.interval.phase).toBe('rest')
+    expect(next.active.interval.exercise).toBe(1)
+
+    act(() => {
+      root.unmount()
+    })
   })
 
-  expect(mocks.update).toHaveBeenCalled()
+  it('shows the first exercise during the initial rest', () => {
+    mocks.state = routineState({
+      phase: 'rest',
+      exercise: 0,
+      round: 0,
+    })
 
-  const next = applyLastUpdate()
+    const { container, root } = render()
 
-  expect(next.active.interval.phase).toBe('rest')
-  expect(next.active.interval.exercise).toBe(0)
+    expect(container.textContent).toContain('Next exercise')
+    expect(container.textContent).toContain('Burpees')
+    expect(container.textContent).not.toContain('Squats')
 
-  act(() => {
-    root.unmount()
-  })
-})
-
-it('shows the next exercise during rest', () => {
-  mocks.state = routineState({
-    phase: 'rest',
-    exercise: 0,
-  })
-
-  const { container, root } = render()
-
-  expect(container.textContent).toContain('Next exercise')
-  expect(container.textContent).toContain('Squats')
-  expect(container.textContent).not.toContain('Burpees')
-
-  act(() => {
-    root.unmount()
-  })
-})
-
-it('shows the first exercise of the next round during the final rest of a round', () => {
-  mocks.state = routineState({
-    phase: 'rest',
-    exercise: 2,
-    round: 0,
+    act(() => {
+      root.unmount()
+    })
   })
 
-  const { container, root } = render()
+  it('shows the next exercise during rest', () => {
+    mocks.state = routineState({
+      phase: 'rest',
+      exercise: 1,
+      round: 0,
+    })
 
-  expect(container.textContent).toContain('Next exercise')
-  expect(container.textContent).toContain('Burpees')
+    const { container, root } = render()
 
-  act(() => {
-    root.unmount()
+    expect(container.textContent).toContain('Next exercise')
+    expect(container.textContent).toContain('Squats')
+    expect(container.textContent).not.toContain('Burpees')
+
+    act(() => {
+      root.unmount()
+    })
   })
-})
+
+  it('shows the first exercise of the next round during rest', () => {
+    mocks.state = routineState({
+      phase: 'rest',
+      exercise: 0,
+      round: 1,
+    })
+
+    const { container, root } = render()
+
+    expect(container.textContent).toContain('Next exercise')
+    expect(container.textContent).toContain('Burpees')
+    expect(container.textContent).toContain('Round 2 of 2')
+
+    act(() => {
+      root.unmount()
+    })
+  })
 
   it('automatically moves from work to rest when the timer expires', () => {
     vi.useFakeTimers()
@@ -250,24 +270,26 @@ it('shows the first exercise of the next round during the final rest of a round'
     const next = applyLastUpdate()
 
     expect(next.active.interval.phase).toBe('rest')
-    expect(next.active.interval.exercise).toBe(0)
+    expect(next.active.interval.exercise).toBe(1)
 
     act(() => {
       root.unmount()
     })
   })
 
-  it('automatically moves from rest to the next exercise', () => {
+  it('automatically moves from rest to the same exercise in the work phase', () => {
     vi.useFakeTimers()
 
     mocks.state = routineState({
       phase: 'rest',
-      exercise: 0,
+      exercise: 1,
+      round: 0,
     })
 
     const { container, root } = render()
 
     expect(container.textContent).toContain('Rest')
+    expect(container.textContent).toContain('Squats')
 
     act(() => {
       vi.advanceTimersByTime(15_000)
@@ -285,19 +307,19 @@ it('shows the first exercise of the next round during the final rest of a round'
     })
   })
 
-  it('finishes after the final rest', () => {
+  it('finishes immediately after the final work interval', () => {
     vi.useFakeTimers()
 
     mocks.state = routineState({
       round: 1,
       exercise: 2,
-      phase: 'rest',
+      phase: 'work',
     })
 
     const { root } = render()
 
     act(() => {
-      vi.advanceTimersByTime(15_000)
+      vi.advanceTimersByTime(30_000)
     })
 
     expect(mocks.update).toHaveBeenCalled()

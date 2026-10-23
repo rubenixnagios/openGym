@@ -84,7 +84,8 @@ describe('beginWorkout with a routine-id list', () => {
     expect(a.interval).toEqual({
       round: 0,
       exercise: 0,
-      phase: 'work',
+      phase: 'rest',
+      initialRest: true,
       rounds: 4,
       exerciseCount: 3,
       workSec: 30,

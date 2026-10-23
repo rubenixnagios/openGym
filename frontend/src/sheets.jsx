@@ -2179,17 +2179,6 @@ export function beginWorkout(routineIds, bw) {
   const interval = routines.length === 1
     ? intervalStateFromRoutine(routines[0])
     : null
-console.log('INTERVAL DEBUG JSON', JSON.stringify({
-  routine: routines[0],
-  interval,
-}, null, 2))
-
-console.log('BEGIN WORKOUT', {
-  routineIds,
-  routines,
-  interval,
-})
-
   update(s => {
     s.active = {
       id: uid(), d: todayISO(), start: Date.now(),
