@@ -2532,9 +2532,11 @@ paths:
         For `provider: webhook`: `url` (https, or http to a home-network address when
         `INTEGRATIONS_ALLOW_LAN=1`; never loopback, link-local or, by default, a private
         address), an optional `label` (60 characters) and `events` (at least one; default
-        `workout.finished`). At most 10 webhooks a profile. The answer's `reveal.secret` is
-        the signing secret, **shown this once**: the server keeps it sealed and never sends
-        it again. Payloads and the signature: docs/INTEGRATIONS.md.
+        `workout.finished`). Optional HTTP Basic Auth requires both `username` and `password`
+        and is only allowed over HTTPS, including when LAN HTTP is enabled. Credentials are
+        sealed by the server and never returned. At most 10 webhooks a profile. The answer's
+        `reveal.secret` is the signing secret, **shown this once**: the server keeps it sealed
+        and never sends it again. Payloads and the signature: docs/INTEGRATIONS.md.
       requestBody:
         required: true
         content:
@@ -2546,6 +2548,8 @@ paths:
                 provider: { type: string, example: webhook }
                 url: { type: string, maxLength: 2048, example: 'https://ha.example.com/api/webhook/opengym-7f3a' }
                 label: { type: string, maxLength: 60 }
+                username: { type: string, maxLength: 256, description: Optional HTTP Basic Auth username. Requires password and HTTPS. }
+                password: { type: string, maxLength: 1024, description: Optional HTTP Basic Auth password. Requires username and HTTPS. }
                 events: { type: array, items: { $ref: '#/components/schemas/IntegrationEvent' } }
       responses:
         '200':
@@ -2578,10 +2582,12 @@ paths:
     post:
       tags: [integrations]
       operationId: updateIntegration
-      summary: Rename a connection, change its events, pause or resume it
+      summary: Update a connection, its events, Basic Auth, or pause state
       description: >-
         A new URL is a new webhook (and a new secret): disconnect and connect again.
-        `paused: false` also clears a "Needs attention".
+        Send both `username` and `password` to replace HTTP Basic Auth credentials; use
+        `clearAuth: true` to remove them. Basic Auth requires HTTPS. `paused: false` also
+        clears a "Needs attention".
       requestBody:
         required: true
         content:
@@ -2594,6 +2600,9 @@ paths:
                 label: { type: string, maxLength: 60 }
                 events: { type: array, items: { $ref: '#/components/schemas/IntegrationEvent' } }
                 paused: { type: boolean }
+                username: { type: string, maxLength: 256, description: New HTTP Basic Auth username. Must be sent with password. }
+                password: { type: string, maxLength: 1024, description: New HTTP Basic Auth password. Must be sent with username. }
+                clearAuth: { type: boolean, description: Set true to remove configured HTTP Basic Auth credentials. }
       responses:
         '200':
           description: The connection as it is now.
@@ -4007,6 +4016,7 @@ components:
           type: object
           properties:
             url: { type: string, example: 'https://ha.example.com/api/webhook/…7f3a', description: Masked. }
+            auth: { type: boolean, description: Whether HTTP Basic Auth is configured. Credentials are never returned. }
         createdAt: { type: integer, description: Epoch ms. }
         lastOk: { type: ['integer', 'null'], description: Epoch ms of the last delivery that landed. }
         lastError:

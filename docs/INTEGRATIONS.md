@@ -46,12 +46,16 @@ card says *Needs your server* there.
    - **Workout finished** (`workout.finished`)
    - **New personal record** (`workout.pr`)
    - **Weigh-in logged** (`weighin.logged`)
+
+   You can optionally enter an HTTP Basic Auth username and password. Enter both or neither.
+   Basic Auth requires HTTPS, even when LAN HTTP is enabled.
 3. **Add webhook**. The next screen shows the **signing secret** once. Paste it into your tool if it
    checks signatures (below); openGym never shows it again. Lost it? Disconnect and add the URL
    again for a new one.
 4. **Send test event** from the webhook's sheet. The sheet also shows the last delivery, the last
    error with a **Retry**, the activity log (the last 50 deliveries), a switch to pause it, and
-   **Disconnect**.
+   **Disconnect**. You can update or remove Basic Auth credentials there. Existing credentials
+   are never displayed; enter a new pair to replace them.
 
 Up to 10 webhooks a profile. Only events from the last seven days that happened after you added the
 webhook are sent, so restoring a backup or importing from another app does not replay your history.
@@ -93,6 +97,8 @@ Every delivery has the same envelope:
 
 Headers: `Content-Type: application/json`, `User-Agent: openGym-Webhook/1`,
 `X-OpenGym-Event` (the type), `X-OpenGym-Delivery` (the id) and `X-OpenGym-Signature`.
+When HTTP Basic Auth is configured, openGym also sends `Authorization: Basic ...`.
+This authentication is independent of the webhook signing secret.
 
 **`workout.finished`**
 
@@ -220,7 +226,8 @@ INTEGRATIONS_ALLOW_LAN=1
 ```
 
 That opens the home network's addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10
-for Tailscale and friends, and IPv6 fc00::/7), and plain `http://` **only** towards them. Loopback
+for Tailscale and friends, and IPv6 fc00::/7), and plain `http://` **only** towards them. HTTP Basic Auth credentials are never sent over
+plain HTTP: any webhook using Basic Auth must use HTTPS, even on the home network. Loopback
 (the server itself), link-local (169.254.x.x, where cloud metadata lives), multicast and reserved
 blocks stay shut whatever the setting, and `http://` to an internet address is always refused.
 Every signed-in user can then make your server send requests into your network, so only turn it on
@@ -232,10 +239,11 @@ name your DNS knows.
 
 ### What is stored where
 
-- `data/integrations/u-<profile id>.json`: each profile's connections, mode 0600. The webhook URL
-  and its signing secret are encrypted (AES-256-GCM) with a key derived from `data/secret`; the
-  label, the events, a masked URL and the last 50 log lines are not. Every stored field has a
-  length cap.
+- `data/integrations/u-<profile id>.json`: each profile's connections, mode 0600. The webhook URL,
+  signing secret and optional HTTP Basic Auth username and password are encrypted (AES-256-GCM)
+  with a key derived from `data/secret`; the label, events, masked URL, Basic Auth configured flag
+  and last 50 log lines are not. Credentials are never returned by the API. Every stored field
+  has a length cap.
 - `data/integrations/outbox.json`: deliveries waiting or failed, and the ids of the last 45 days'
   deliveries so nothing is sent twice. Written before anything is sent, so a restart neither loses
   nor duplicates a delivery.

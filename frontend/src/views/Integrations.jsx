@@ -325,6 +325,8 @@ function EventSwitches({ events, onToggle, disabled }) {
 function AddWebhook({ close, server, lan, toast }) {
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [events, setEvents] = useState(['workout.finished'])
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState(null)
@@ -340,9 +342,15 @@ function AddWebhook({ close, server, lan, toast }) {
     // Focus goes to the field the problem is about (WIG: focus the first error on submit).
     if (p) { setProblem(t(p)); urlRef.current?.focus(); return }
     if (!events.length) { setProblem(t('Pick at least one thing to send.')); return }
+    if (Boolean(username) !== Boolean(password)) {
+      setProblem(t('Enter both a username and password for HTTP Basic Auth.'))
+      return
+    }
     setBusy(true); setProblem(null)
     try {
-      const r = await api('/api/integrations/connect', { method: 'POST', body: JSON.stringify({ provider: 'webhook', url: full, label: label.trim(), events }) })
+      const payload = { provider: 'webhook', url: full, label: label.trim(), events }
+      if (username && password) Object.assign(payload, { username, password })
+      const r = await api('/api/integrations/connect', { method: 'POST', body: JSON.stringify(payload) })
       setSecret(r?.reveal?.secret || '')
       server.load()
     } catch (e) {
@@ -377,6 +385,19 @@ function AddWebhook({ close, server, lan, toast }) {
       <label className="intg-label" htmlFor="intg-name">{t('Name')}</label>
       <TextField id="intg-name" name="webhook-name" autoComplete="off" placeholder={t('Name (optional)')} value={label} onChange={e => setLabel(e.target.value)} maxLength={60} aria-label={t('Name')} />
     </div>
+    <Section title={t('HTTP Basic Auth')}>
+      <p className="intg-lead">{t('Optional. Both fields are required. Basic Auth is only allowed over HTTPS.')}</p>
+      <div className="intg-field">
+        <label className="intg-label" htmlFor="intg-username">{t('Username')}</label>
+        <TextField id="intg-username" name="webhook-username" value={username} onChange={e => setUsername(e.target.value)}
+          autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={256} disabled={busy} />
+      </div>
+      <div className="intg-field">
+        <label className="intg-label" htmlFor="intg-password">{t('Password')}</label>
+        <TextField id="intg-password" name="webhook-password" type="password" value={password} onChange={e => setPassword(e.target.value)}
+          autoComplete="new-password" maxLength={1024} disabled={busy} />
+      </div>
+    </Section>
     <Section title={t('Send when')}>
       <EventSwitches events={events} onToggle={toggle} disabled={busy} />
     </Section>
@@ -392,6 +413,8 @@ function WebhookDetail({ close, conn: initial, server, toast }) {
   const [c, setC] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState(null)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const call = async (path, body, after) => {
     setBusy(true)
     try {
@@ -403,6 +426,22 @@ function WebhookDetail({ close, conn: initial, server, toast }) {
     } catch (e) { toast?.(errText(e, t('Something went wrong'))) }
     setBusy(false)
   }
+  const saveAuth = () => {
+    if (!username || !password) {
+      toast?.(t('Enter both a username and password for HTTP Basic Auth.'))
+      return
+    }
+    call('/api/integrations/update', { username, password }, () => {
+      setUsername('')
+      setPassword('')
+      toast?.(t('HTTP Basic Auth updated'))
+    })
+  }
+  const clearAuth = () => call('/api/integrations/update', { clearAuth: true }, () => {
+    setUsername('')
+    setPassword('')
+    toast?.(t('HTTP Basic Auth removed'))
+  })
   const loadLog = () => api('/api/integrations/log?id=' + encodeURIComponent(c.id)).then(r => setLog(r?.log || [])).catch(() => setLog([]))
   const toggle = (id, v) => {
     const next = v ? [...new Set([...c.events, id])] : c.events.filter(x => x !== id)
@@ -421,6 +460,33 @@ function WebhookDetail({ close, conn: initial, server, toast }) {
   return <>
     <SheetHead icon="webhook" title={c.label} status={statusOf(c)} />
     <p className="intg-url intg-lead" translate="no">{c.info?.url}</p>
+    <Section title={t('HTTP Basic Auth')}>
+      <p className="intg-lead">
+        {c.info?.auth
+          ? t('Credentials are configured. Enter a new username and password to replace them.')
+          : t('No credentials configured. You can optionally add HTTP Basic Auth.')}
+      </p>
+      <div className="intg-field">
+        <label className="intg-label" htmlFor="intg-edit-username">{t('New username')}</label>
+        <TextField id="intg-edit-username" name="webhook-new-username" value={username}
+          onChange={e => setUsername(e.target.value)} autoComplete="username"
+          autoCapitalize="none" spellCheck={false} maxLength={256} disabled={busy} />
+      </div>
+      <div className="intg-field">
+        <label className="intg-label" htmlFor="intg-edit-password">{t('New password')}</label>
+        <TextField id="intg-edit-password" name="webhook-new-password" type="password" value={password}
+          onChange={e => setPassword(e.target.value)} autoComplete="new-password"
+          maxLength={1024} disabled={busy} />
+      </div>
+      <div className="intg-btns">
+        <Button variant="primary" disabled={busy || !username || !password} onClick={saveAuth}>
+          {t('Save credentials')}
+        </Button>
+        {c.info?.auth && <Button variant="tinted" disabled={busy} onClick={clearAuth}>
+          {t('Remove authentication')}
+        </Button>}
+      </div>
+    </Section>
     <Section title={t('Send when')}>
       <EventSwitches events={c.events} onToggle={toggle} disabled={busy} />
     </Section>

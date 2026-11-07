@@ -306,6 +306,7 @@ test('connect, deliver signed, fail, retry and disconnect, end to end', async ()
   const c = r.calls[0];
   assert.equal(c.url, 'https://hooks.example.com/api/webhook/opengym-1234567890');
   assert.equal(c.headers['X-OpenGym-Event'], 'workout.finished');
+  assert.equal(c.headers.Authorization, undefined, 'no Basic Auth when credentials were not configured');
   assert.equal(verifySignature(secret, c.body, c.headers['X-OpenGym-Signature']), true);
   const body = JSON.parse(c.body);
   assert.equal(body.version, 1);
@@ -356,6 +357,93 @@ test('connect, deliver signed, fail, retry and disconnect, end to end', async ()
   r.hub.disconnect('u1', id);
   assert.deepEqual(r.hub.describe('u1').connections, []);
   r.hub.stop();
+});
+
+test('webhook Basic Auth is encrypted, sent, updated and cleared', async () => {
+  const r = hubRig();
+  const username = 'ntfy-test-user';
+  const password = 'fake-password-for-tests';
+
+  // Partial credentials and invalid Basic Auth usernames are refused.
+  assert.throws(
+    () => r.hub.connect('u1', 'webhook', {
+      url: 'https://ntfy.example.com/topic',
+      username,
+    }),
+    e => e.status === 400 && e.code === 'auth',
+  );
+  assert.throws(
+    () => r.hub.connect('u1', 'webhook', {
+      url: 'https://ntfy.example.com/topic',
+      username: 'user:name',
+      password,
+    }),
+    e => e.status === 400 && e.code === 'auth',
+  );
+
+  // Even when LAN HTTP is explicitly allowed, Basic Auth requires HTTPS.
+  const lan = hubRig({ INTEGRATIONS_ALLOW_LAN: '1' });
+  assert.throws(
+    () => lan.hub.connect('u1', 'webhook', {
+      url: 'http://192.168.1.4/topic',
+      username,
+      password,
+    }),
+    e => e.status === 400 && e.code === 'auth-tls',
+  );
+
+  const made = r.hub.connect('u1', 'webhook', {
+    url: 'https://ntfy.example.com/topic',
+    username,
+    password,
+    events: ['workout.finished'],
+  });
+  const id = made.connection.id;
+
+  assert.equal(made.connection.info.auth, true);
+  assert.ok(!JSON.stringify(r.hub.describe('u1')).includes(username));
+  assert.ok(!JSON.stringify(r.hub.describe('u1')).includes(password));
+
+  const disk = () => fs.readFileSync(
+    path.join(r.dataDir, 'integrations', 'u-u1.json'),
+    'utf8',
+  );
+  assert.ok(!disk().includes(username), 'username is encrypted on disk');
+  assert.ok(!disk().includes(password), 'password is encrypted on disk');
+
+  const basic = (u, p) => `Basic ${Buffer.from(`${u}:${p}`, 'utf8').toString('base64')}`;
+
+  // The receiver gets the expected Basic Auth header.
+  await r.hub.test('u1', id, 'workout.finished');
+  assert.equal(r.calls.at(-1).headers.Authorization, basic(username, password));
+
+  // Updating credentials replaces the encrypted values.
+  const nextUsername = 'ntfy-new-user';
+  const nextPassword = 'another-fake-password';
+  const updated = r.hub.update('u1', id, {
+    username: nextUsername,
+    password: nextPassword,
+  });
+  assert.equal(updated.connection.info.auth, true);
+  assert.ok(!JSON.stringify(r.hub.describe('u1')).includes(nextUsername));
+  assert.ok(!JSON.stringify(r.hub.describe('u1')).includes(nextPassword));
+  assert.ok(!disk().includes(nextUsername));
+  assert.ok(!disk().includes(nextPassword));
+
+  await r.hub.test('u1', id, 'workout.finished');
+  assert.equal(r.calls.at(-1).headers.Authorization, basic(nextUsername, nextPassword));
+
+  // Clearing authentication removes both stored credentials and the header.
+  const cleared = r.hub.update('u1', id, { clearAuth: true });
+  assert.equal(cleared.connection.info.auth, false);
+
+  await r.hub.test('u1', id, 'workout.finished');
+  assert.equal(r.calls.at(-1).headers.Authorization, undefined);
+  assert.ok(!disk().includes(nextUsername));
+  assert.ok(!disk().includes(nextPassword));
+
+  r.hub.stop();
+  lan.hub.stop();
 });
 
 test('at most ten webhooks a profile, and quick taps are slowed down', () => {

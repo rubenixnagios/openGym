@@ -49,7 +49,9 @@ export function capRecord(r, now = Date.now()) {
     if (typeof v === 'string' && v.length <= SECRET_MAX) secrets[str(k, 40)] = v;
   }
   const info = {};
-  for (const [k, v] of Object.entries(plainObject(r.info) ? r.info : {}).slice(0, 8)) info[str(k, 40)] = str(v, INFO_MAX);
+  for (const [k, v] of Object.entries(plainObject(r.info) ? r.info : {}).slice(0, 8)) {
+    info[str(k, 40)] = k === 'auth' ? v === true : str(v, INFO_MAX);
+  }
   const lastError = plainObject(r.lastError)
     ? { at: Number.isFinite(r.lastError.at) ? r.lastError.at : now, msg: str(r.lastError.msg, MSG_MAX), ...(r.lastError.code ? { code: str(r.lastError.code, 40) } : {}) }
     : null;

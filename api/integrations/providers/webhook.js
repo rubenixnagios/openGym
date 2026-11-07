@@ -85,25 +85,56 @@ export function judge(r, err, now = Date.now()) {
 export function webhookProvider({ allowLan = false, transport = null, version = 'dev' } = {}) {
   const send = transport || makeTransport({ allowLan });
 
-  async function post(url, secret, envelope) {
+  async function post(url, secret, envelope, username = null, password = null) {
     const bad = outboundUrlError(url, { allowLan });
     if (bad) return { ok: false, retry: false, code: 'blocked', msg: bad };
     const body = JSON.stringify(envelope);
     const started = Date.now();
     let r = null, err = null;
     try {
-      r = await send(url, {
-        body,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': `openGym-Webhook/${version}`,
-          'X-OpenGym-Event': envelope.type,
-          'X-OpenGym-Delivery': envelope.id,
-          'X-OpenGym-Signature': signature(secret, body),
-        },
-      });
+      const headers = {
+        'Content-Type': 'application/json',
+        'User-Agent': `openGym-Webhook/${version}`,
+        'X-OpenGym-Event': envelope.type,
+        'X-OpenGym-Delivery': envelope.id,
+        'X-OpenGym-Signature': signature(secret, body),
+      };
+      if (username != null && password != null) {
+        headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}`;
+      }
+      r = await send(url, { body, headers });
     } catch (e) { err = e; }
     return { ...judge(r, err), ms: Date.now() - started };
+  }
+
+  function authCredentials(input, url) {
+    const hasUsername = input?.username != null;
+    const hasPassword = input?.password != null;
+    if (!hasUsername && !hasPassword) return null;
+
+    const username = String(input.username ?? '');
+    const password = String(input.password ?? '');
+
+    // Two empty fields mean "no authentication" on creation, or no change on update.
+    if (!username && !password) return null;
+
+    if (!username.trim() || !password) {
+      throw Object.assign(new Error('username and password must both be supplied'), { status: 400, code: 'auth' });
+    }
+    if (username.includes(':')) {
+      throw Object.assign(new Error('username cannot contain a colon'), { status: 400, code: 'auth' });
+    }
+    if (username.length > 256 || password.length > 1024) {
+      throw Object.assign(new Error('webhook credentials are too long'), { status: 400, code: 'auth' });
+    }
+    let parsedUrl;
+    try { parsedUrl = new URL(url); } catch {
+      throw Object.assign(new Error('Basic authentication requires a valid HTTPS URL'), { status: 400, code: 'auth-tls' });
+    }
+    if (parsedUrl.protocol !== 'https:') {
+      throw Object.assign(new Error('Basic authentication requires an HTTPS URL'), { status: 400, code: 'auth-tls' });
+    }
+    return { username, password };
   }
 
   return {
@@ -126,24 +157,46 @@ export function webhookProvider({ allowLan = false, transport = null, version = 
       const bad = outboundUrlError(url, { allowLan });
       if (bad) throw Object.assign(new Error(bad), { status: 400, code: 'url' });
       const events = pickEvents(input?.events);
+      const auth = authCredentials(input, url);
       const secret = newSecret();
       let host = '';
       try { host = new URL(url).host; } catch { /* checked above */ }
       const label = String(input?.label || '').trim().slice(0, 60) || host;
-      return { label, events, info: { url: maskUrl(url) }, secrets: { url, secret }, reveal: { secret } };
+      return {
+        label, events,
+        info: { url: maskUrl(url), auth: !!auth },
+        secrets: { url, secret, ...(auth || {}) },
+        reveal: { secret },
+      };
     },
     /** Label and events only: a new URL is a new webhook (and a new secret). */
-    update(input) {
+    update(input, context = {}) {
       const patch = {};
       if (input?.label != null) patch.label = String(input.label).trim().slice(0, 60);
       if (input?.events != null) patch.events = pickEvents(input.events);
       if (input?.paused != null) patch.paused = input.paused === true;
+
+      if (input?.clearAuth === true) {
+        patch.info = { auth: false };
+        patch.secrets = { username: null, password: null };
+      } else if (input?.username != null || input?.password != null) {
+        const username = String(input?.username ?? '');
+        const password = String(input?.password ?? '');
+        if (username || password) {
+          const auth = authCredentials(input, context.url);
+          patch.info = { auth: true };
+          patch.secrets = auth;
+        }
+      }
       return patch;
     },
     async deliver(job, reveal) {
       const url = reveal('url'), secret = reveal('secret');
-      if (!url || !secret) return { ok: false, retry: false, code: 'sealed', msg: 'Its settings cannot be read any more. Add it again.' };
-      return post(url, secret, job.payload);
+      const username = reveal('username'), password = reveal('password');
+      if (!url || !secret || ((username == null) !== (password == null))) {
+        return { ok: false, retry: false, code: 'sealed', msg: 'Its settings cannot be read any more. Add it again.' };
+      }
+      return post(url, secret, job.payload, username, password);
     },
   };
 }

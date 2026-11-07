@@ -147,11 +147,26 @@ export function createIntegrations({ dataDir, secret, env = process.env, now = D
       if (!active) off();
       const rec = own(uid, id);
       userLimit(uid, 'act');
-      const patch = providers[rec.provider].update ? providers[rec.provider].update(input || {}) : {};
+      const updateContext = { url: store.reveal(uid, rec, 'url') };
+      const patch = providers[rec.provider].update
+        ? providers[rec.provider].update(input || {}, updateContext)
+        : {};
+      const { secrets: secretPatch, info: infoPatch, ...visiblePatch } = patch;
       const next = store.update(uid, id, r => {
-        Object.assign(r, patch);
+        Object.assign(r, visiblePatch);
+
+        if (infoPatch) r.info = { ...(r.info || {}), ...infoPatch };
+
+        if (secretPatch) {
+          r.secrets ||= {};
+          for (const [name, value] of Object.entries(secretPatch)) {
+            if (value === null) delete r.secrets[name];
+            else r.secrets[name] = store.seal(uid, id, name, value);
+          }
+        }
+
         // Switching a paused one back on is also the user saying "I fixed it".
-        if (patch.paused === false) { r.status = 'ok'; r.failures = 0; }
+        if (visiblePatch.paused === false) { r.status = 'ok'; r.failures = 0; }
       });
       return { connection: view(uid, next) };
     },

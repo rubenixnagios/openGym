@@ -237,6 +237,89 @@ describe('webhooks', () => {
     expect(mocks.toast).toHaveBeenCalledWith('Pick at least one thing to send.')
     expect(mocks.calls.some(c => c[0] === '/api/integrations/update')).toBe(false)
   })
+
+  it('connect: sends optional Basic Auth credentials when both are provided', async () => {
+    mocks.answers['/api/integrations'] = { providers: [{ id: 'webhook', max: 10 }], connections: [] }
+    mocks.answers['/api/integrations/connect'] = { connection: conn(), reveal: { secret: 'ogwh_auth123' } }
+
+    await mount()
+    act(() => action('webhook').click())
+    await showSheet()
+
+    await type(sheetHost.querySelector('[name="webhook-url"]'), 'https://ha.example.com/api/webhook')
+    await type(sheetHost.querySelector('[name="webhook-username"]'), 'ntfy-user')
+    await type(sheetHost.querySelector('[name="webhook-password"]'), 'ntfy-password')
+
+    await act(async () => { sheetBtn('Add webhook').click() })
+
+    const sent = mocks.calls.find(c => c[0] === '/api/integrations/connect')[1]
+    expect(sent).toMatchObject({
+      provider: 'webhook',
+      url: 'https://ha.example.com/api/webhook',
+      username: 'ntfy-user',
+      password: 'ntfy-password',
+    })
+  })
+
+  it('connect: refuses incomplete Basic Auth credentials before calling the API', async () => {
+    mocks.answers['/api/integrations'] = { providers: [{ id: 'webhook', max: 10 }], connections: [] }
+
+    await mount()
+    act(() => action('webhook').click())
+    await showSheet()
+
+    await type(sheetHost.querySelector('[name="webhook-url"]'), 'https://ha.example.com/api/webhook')
+    await type(sheetHost.querySelector('[name="webhook-username"]'), 'ntfy-user')
+
+    await act(async () => { sheetBtn('Add webhook').click() })
+
+    expect(sheetHost.querySelector('[role="alert"]').textContent)
+      .toBe('Enter both a username and password for HTTP Basic Auth.')
+    expect(mocks.calls.some(c => c[0] === '/api/integrations/connect')).toBe(false)
+  })
+
+  it('detail: updates and removes Basic Auth without displaying stored credentials', async () => {
+    const authenticated = conn({ info: { url: 'https://ha.example.com/api/webhook/…7f3a', auth: true } })
+    mocks.answers['/api/integrations'] = {
+      providers: [{ id: 'webhook', max: 10 }],
+      connections: [authenticated],
+    }
+    mocks.answers['/api/integrations/update'] = body => ({
+      connection: conn({
+        info: {
+          url: 'https://ha.example.com/api/webhook/…7f3a',
+          auth: !body.clearAuth,
+        },
+      }),
+    })
+
+    await mount()
+    act(() => action('webhook').click())
+    await showSheet()
+    act(() => [...sheetHost.querySelectorAll('.lrow')].find(r => r.textContent.includes('Home Assistant')).click())
+    await showSheet()
+
+    expect(sheetHost.textContent).toContain('Credentials are configured.')
+    expect(sheetHost.textContent).not.toContain('ntfy-password')
+
+    await type(sheetHost.querySelector('[name="webhook-new-username"]'), 'new-user')
+    await type(sheetHost.querySelector('[name="webhook-new-password"]'), 'new-password')
+
+    await act(async () => { sheetBtn('Save credentials').click() })
+
+    expect(mocks.calls.filter(c => c[0] === '/api/integrations/update').at(-1)[1])
+      .toEqual({ id: 'c_1', username: 'new-user', password: 'new-password' })
+    expect(sheetHost.querySelector('[name="webhook-new-username"]').value).toBe('')
+    expect(sheetHost.querySelector('[name="webhook-new-password"]').value).toBe('')
+    expect(mocks.toast).toHaveBeenCalledWith('HTTP Basic Auth updated')
+
+    await act(async () => { sheetBtn('Remove authentication').click() })
+
+    expect(mocks.calls.filter(c => c[0] === '/api/integrations/update').at(-1)[1])
+      .toEqual({ id: 'c_1', clearAuth: true })
+    expect(mocks.toast).toHaveBeenCalledWith('HTTP Basic Auth removed')
+  })
+
 })
 
 describe('the Settings search', () => {
